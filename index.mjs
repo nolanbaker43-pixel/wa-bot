@@ -15,6 +15,7 @@ const OPENAI_KEY = 'sk-...'           // ← ChatGPT + DALL·E
 const BLACKBOX_API = 'https://blackbox.ai/api/chat'  // free unlimited AI (no key needed)
 
 async function start() {
+    // This creates and uses the 'auth_baileys' folder to store session data
     const { state, saveCreds } = await useMultiFileAuthState('auth_baileys')
     const sock = makeWASocket({
         auth: state,
@@ -25,22 +26,30 @@ async function start() {
     sock.ev.on('connection.update', u => {
         if (u.qr) qrcode.generate(u.qr, { small: true })
         if (u.connection === 'open') console.log('🤖 GOD BOT v2 FULLY LOADED 🔥')
-        if (u.connection === 'close') start()
+        // Automatically restart if connection closes unexpectedly
+        if (u.connection === 'close') start() 
     })
     sock.ev.on('creds.update', saveCreds)
 
     sock.ev.on('messages.upsert', async ({ messages }) => {
         const m = messages[0]
         if (!m.message) return
+        
+        // Extract message text from various message types
         const text = m.message.conversation || m.message.extendedTextMessage?.text || ''
         const from = m.key.remoteJid
 
         console.log(`← ${from.split('@')[0]}: ${text || '[media]'}`)
 
+        // Only process commands starting with '!'
         if (!text.startsWith('!')) return
 
         const args = text.slice(1).trim().split(/ +/)
         const cmd = args.shift().toLowerCase()
+
+        // -----------------------------------------------------------------
+        // === YOUR 80+ COMMAND LOGIC GOES HERE ===
+        // -----------------------------------------------------------------
 
         // === GAMES ===
         if (cmd === 'dice') {
@@ -58,7 +67,8 @@ async function start() {
             else if ((user === 'rock' && bot === 'scissors') || (user === 'paper' && bot === 'rock') || (user === 'scissors' && bot === 'paper'))
                 result += '🎉 You win!'
             else result += '😭 I win!'
-            await sock.sendMessage(from, { text })
+            // NOTE: The original code used { text }, which sends the raw command. Corrected to send the result:
+            await sock.sendMessage(from, { text: result }) 
         }
 
         // === IMAGE GENERATOR (DALL·E 3 or free alternative) ===
@@ -80,8 +90,8 @@ async function start() {
                     const img = await (await fetch(url)).buffer()
                     await sock.sendMessage(from, { image: img, caption: prompt })
                 } else {
-                    // Option 2: FREE Blackbox AI image gen
-                    const res = await axios.post('https://www.blackbox.ai/api/chat', {
+                    // Option 2: FREE Blackbox AI image gen (using the specified endpoint)
+                    const res = await axios.post(BLACKBOX_API, {
                         messages: [{ role: 'user', content: `Generate image: ${prompt}` }],
                         model: 'blackbox'
                     })
@@ -89,12 +99,17 @@ async function start() {
                     if (url) {
                         const img = await (await fetch(url)).buffer()
                         await sock.sendMessage(from, { image: img, caption: prompt })
+                    } else {
+                        await sock.sendMessage(from, { text: 'Free image generator could not parse a URL from the response.' })
                     }
                 }
-            } catch (e) { await sock.sendMessage(from, { text: 'Image failed :(' }) }
+            } catch (e) { 
+                console.error("Image generation error:", e);
+                await sock.sendMessage(from, { text: 'Image failed :(' }) 
+            }
         }
 
-               // === MUSIC DOWNLOADER (100% working 2025) ===
+        // === MUSIC DOWNLOADER (100% working 2025) ===
         if (cmd === 'play' || cmd === 'song' || cmd === 'music') {
             const query = args.join(' ')
             if (!query) return sock.sendMessage(from, { text: 'Usage: !play perfect ed sheeran' })
@@ -102,6 +117,7 @@ async function start() {
             await sock.sendMessage(from, { text: '🔍 Searching...' })
 
             try {
+                // Dynamic imports are necessary for ES modules inside this Baileys context
                 const ytSearch = (await import('yt-search')).default
                 const searchResults = await ytSearch(query)
                 const video = searchResults.videos[0]
@@ -111,7 +127,7 @@ async function start() {
 
                 const ytdl = (await import('ytdl-core')).default
                 const stream = ytdl(video.videoId, { filter: 'audioonly', quality: 'highestaudio' })
-                const filePath = `./${video.videoId}.mp3`
+                const filePath = path.join(__dirname, `${video.videoId}.mp3`)
 
                 // Download with ffmpeg (converts properly for WhatsApp)
                 const ffmpeg = (await import('fluent-ffmpeg')).default
@@ -133,16 +149,19 @@ async function start() {
                 })
 
                 // Clean up
-                fs.unlinkSync(filePath)
+                if (fs.existsSync(filePath)) {
+                    fs.unlinkSync(filePath)
+                }
             } catch (e) {
                 console.log(e)
-                await sock.sendMessage(from, { text: 'Download failed 😭 Try again!' })
+                await sock.sendMessage(from, { text: 'Download failed 😭 Try checking the song name and trying again!' })
             }
         }
+        
         // === MENU ===
         if (cmd === 'menu') {
             const menu = `
-*🤖 GOD BOT v2 - FULL ARSENAL*
+*🤖 GOD BOT v2 - FULL ARSENAL (Baileys)*
 
 !dice → roll dice
 !rps rock/paper/scissors → rock paper scissors
@@ -155,6 +174,10 @@ async function start() {
             `.trim()
             await sock.sendMessage(from, { text: menu })
         }
+        
+        // -----------------------------------------------------------------
+        // === PASTE YOUR REMAINING 70+ COMMANDS ABOVE THIS LINE ===
+        // -----------------------------------------------------------------
     })
 }
 
