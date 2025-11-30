@@ -1,11 +1,12 @@
 {
   "name": "wa-bot",
-  "type": "commonjs",
+  "type": "module",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "GOD BOT using Baileys and ES modules.",
+  "main": "index.mjs",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node index.mjs" 
   },
   "keywords": [],
   "author": "",
