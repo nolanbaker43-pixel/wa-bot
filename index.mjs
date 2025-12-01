@@ -5,24 +5,24 @@ import axios from 'axios'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { fileURLToPath } from 'url' // Removed duplicate import 
 
 // Fix __dirname in ES modules
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 // CONFIG — put your keys here
-const OPENAI_KEY = 'sk-...'           // ← ChatGPT + DALL·E
-const BLACKBOX_API = 'https://blackbox.ai/api/chat'  // free unlimited AI (no key needed)
+const OPENAI_KEY = 'sk-...'           
+const BLACKBOX_API = 'https://blackbox.ai/api/chat' 
 
 async function start() {
-    // === CRITICAL TEMPORARY CHANGE ===
-    // We are replacing useMultiFileAuthState with an empty, non-saving memory state.
-    // This stops the "transaction failed" error but means the session is lost on restart.
-    const state = {}; 
+    // === CRITICAL TEMPORARY CHANGE: Memory-Based Session ===
+    // This is defined manually to avoid disk write errors.
+    const state = {}; // Empty in-memory state
+    // Function that does nothing, replacing the function that saves to disk.
     const saveCreds = () => { console.log("Memory session active. State not saved to disk.") };
     
-    // NOTE: useMultiFileAuthState is no longer imported or used, but the 'state' and 'saveCreds' variables are defined.
-    
+    // Create the socket using the in-memory state
     const sock = makeWASocket({
         auth: state,
         printQRInTerminal: true,
@@ -38,10 +38,17 @@ async function start() {
         // Automatically restart if connection closes unexpectedly
         if (u.connection === 'close') {
             console.error('Connection closed. Attempting restart...');
-            start(); 
+            // Check if connection closed reason indicates a recoverable error
+            if (u.lastDisconnect?.error?.output?.statusCode !== 401) { // 401 means session invalidated
+                start(); 
+            } else {
+                // If session is invalidated (401), force a clean start
+                console.warn("Session invalidated (401). Starting fresh auth process.");
+                start();
+            }
         }
     })
-    sock.ev.on('creds.update', saveCreds) // This still runs, but the function does nothing now.
+    sock.ev.on('creds.update', saveCreds)
 
     sock.ev.on('messages.upsert', async ({ messages }) => {
         try { 
@@ -59,7 +66,7 @@ async function start() {
             const cmd = args.shift().toLowerCase()
 
             // -----------------------------------------------------------------
-            // === YOUR 80+ COMMAND LOGIC GOES HERE (Including the error-proofed !play) ===
+            // === YOUR 80+ COMMAND LOGIC GOES HERE ===
             // -----------------------------------------------------------------
 
             // === GAMES ===
@@ -168,7 +175,6 @@ async function start() {
                     console.error("Music download error:", e);
                     await sock.sendMessage(from, { text: 'Download failed 😭 (Server error during conversion). Try a different song or check your server logs.' })
                     
-                    // Crucial cleanup check in case the file was partially created
                     const potentialFilePath = path.join(__dirname, `${query.replace(/\s/g, '_')}.mp3`);
                     if (fs.existsSync(potentialFilePath)) {
                          fs.unlinkSync(potentialFilePath);
