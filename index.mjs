@@ -1,4 +1,4 @@
-import makeWASocket, { useMultiFileAuthState, downloadMediaMessage } from '@whiskeysockets/baileys'
+import makeWASocket, { downloadMediaMessage } from '@whiskeysockets/baileys'
 import qrcode from 'qrcode-terminal'
 import fetch from 'node-fetch'
 import axios from 'axios'
@@ -15,8 +15,14 @@ const OPENAI_KEY = 'sk-...'           // ← ChatGPT + DALL·E
 const BLACKBOX_API = 'https://blackbox.ai/api/chat'  // free unlimited AI (no key needed)
 
 async function start() {
-    // This creates and uses the 'auth_baileys' folder to store session data
-    const { state, saveCreds } = await useMultiFileAuthState('auth_baileys')
+    // === CRITICAL TEMPORARY CHANGE ===
+    // We are replacing useMultiFileAuthState with an empty, non-saving memory state.
+    // This stops the "transaction failed" error but means the session is lost on restart.
+    const state = {}; 
+    const saveCreds = () => { console.log("Memory session active. State not saved to disk.") };
+    
+    // NOTE: useMultiFileAuthState is no longer imported or used, but the 'state' and 'saveCreds' variables are defined.
+    
     const sock = makeWASocket({
         auth: state,
         printQRInTerminal: true,
@@ -24,7 +30,10 @@ async function start() {
     })
 
     sock.ev.on('connection.update', u => {
-        if (u.qr) qrcode.generate(u.qr, { small: true })
+        if (u.qr) {
+            qrcode.generate(u.qr, { small: true });
+            console.warn("⚠️ SCAN QR CODE NOW. Session is NOT being saved to disk.");
+        }
         if (u.connection === 'open') console.log('🤖 GOD BOT v2 FULLY LOADED 🔥')
         // Automatically restart if connection closes unexpectedly
         if (u.connection === 'close') {
@@ -32,28 +41,25 @@ async function start() {
             start(); 
         }
     })
-    sock.ev.on('creds.update', saveCreds)
+    sock.ev.on('creds.update', saveCreds) // This still runs, but the function does nothing now.
 
     sock.ev.on('messages.upsert', async ({ messages }) => {
-        // --- Added global try/catch to help prevent unhandled crashes ---
         try { 
             const m = messages[0]
             if (!m.message) return
             
-            // Extract message text from various message types
             const text = m.message.conversation || m.message.extendedTextMessage?.text || ''
             const from = m.key.remoteJid
 
             console.log(`← ${from.split('@')[0]}: ${text || '[media]'}`)
 
-            // Only process commands starting with '!'
             if (!text.startsWith('!')) return
 
             const args = text.slice(1).trim().split(/ +/)
             const cmd = args.shift().toLowerCase()
 
             // -----------------------------------------------------------------
-            // === YOUR 80+ COMMAND LOGIC GOES HERE ===
+            // === YOUR 80+ COMMAND LOGIC GOES HERE (Including the error-proofed !play) ===
             // -----------------------------------------------------------------
 
             // === GAMES ===
@@ -122,7 +128,6 @@ async function start() {
                 
                 // *** CRITICAL CHANGE: ENTIRE BLOCK IS WRAPPED IN TRY/CATCH ***
                 try {
-                    // Dynamic imports are necessary for ES modules inside this Baileys context
                     const ytSearch = (await import('yt-search')).default
                     const searchResults = await ytSearch(query)
                     const video = searchResults.videos[0]
@@ -131,7 +136,6 @@ async function start() {
                     await sock.sendMessage(from, { text: `⬇️ Downloading...\n🎵 ${video.title}\n⏱ ${video.timestamp}` })
 
                     const ytdl = (await import('ytdl-core')).default
-                    // Check video length before attempting download to prevent long downloads from timing out
                     if (video.seconds > 600) { // Limit to 10 minutes
                          return sock.sendMessage(from, { text: 'Video is too long (over 10 mins). Try a shorter song.' })
                     }
@@ -139,7 +143,6 @@ async function start() {
                     const stream = ytdl(video.videoId, { filter: 'audioonly', quality: 'highestaudio' })
                     const filePath = path.join(__dirname, `${video.videoId}.mp3`)
 
-                    // Download with ffmpeg (converts properly for WhatsApp)
                     const ffmpeg = (await import('fluent-ffmpeg')).default
                     const ffmpegPath = (await import('@ffmpeg-installer/ffmpeg')).path
                     ffmpeg.setFfmpegPath(ffmpegPath)
@@ -158,12 +161,10 @@ async function start() {
                         fileName: `${video.title}.mp3`
                     })
 
-                    // Clean up
                     if (fs.existsSync(filePath)) {
                         fs.unlinkSync(filePath)
                     }
                 } catch (e) {
-                    // This catches any error in the download/conversion process
                     console.error("Music download error:", e);
                     await sock.sendMessage(from, { text: 'Download failed 😭 (Server error during conversion). Try a different song or check your server logs.' })
                     
@@ -196,10 +197,7 @@ async function start() {
             // === PASTE YOUR REMAINING 70+ COMMANDS ABOVE THIS LINE ===
             // -----------------------------------------------------------------
         } catch (globalError) {
-            // This is the last safety net for any general command processing error
             console.error("Global Message Upsert Error:", globalError);
-            // Optionally, send a message saying the bot experienced an internal error
-            // await sock.sendMessage(from, { text: "⚠️ Critical internal error. Bot must restart." });
         }
     })
 }
