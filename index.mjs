@@ -4,8 +4,7 @@ import fetch from 'node-fetch'
 import axios from 'axios'
 import fs from 'fs'
 import path from 'path'
-import { fileURLToPath } from 'url'
-import { fileURLToPath } from 'url' // Removed duplicate import 
+import { fileURLToPath } from 'url' 
 
 // Fix __dirname in ES modules
 const __filename = fileURLToPath(import.meta.url)
@@ -17,9 +16,7 @@ const BLACKBOX_API = 'https://blackbox.ai/api/chat'
 
 async function start() {
     // === CRITICAL TEMPORARY CHANGE: Memory-Based Session ===
-    // This is defined manually to avoid disk write errors.
-    const state = {}; // Empty in-memory state
-    // Function that does nothing, replacing the function that saves to disk.
+    const state = {}; 
     const saveCreds = () => { console.log("Memory session active. State not saved to disk.") };
     
     // Create the socket using the in-memory state
@@ -38,11 +35,9 @@ async function start() {
         // Automatically restart if connection closes unexpectedly
         if (u.connection === 'close') {
             console.error('Connection closed. Attempting restart...');
-            // Check if connection closed reason indicates a recoverable error
-            if (u.lastDisconnect?.error?.output?.statusCode !== 401) { // 401 means session invalidated
+            if (u.lastDisconnect?.error?.output?.statusCode !== 401) { 
                 start(); 
             } else {
-                // If session is invalidated (401), force a clean start
                 console.warn("Session invalidated (401). Starting fresh auth process.");
                 start();
             }
@@ -126,75 +121,25 @@ async function start() {
                 }
             }
 
-            // === MUSIC DOWNLOADER (100% working 2025) ===
+            // === MUSIC DOWNLOADER (REMOVED: Depends on unstable FFmpeg native library) ===
             if (cmd === 'play' || cmd === 'song' || cmd === 'music') {
-                const query = args.join(' ')
-                if (!query) return sock.sendMessage(from, { text: 'Usage: !play perfect ed sheeran' })
-
-                await sock.sendMessage(from, { text: '🔍 Searching...' })
-                
-                // *** CRITICAL CHANGE: ENTIRE BLOCK IS WRAPPED IN TRY/CATCH ***
-                try {
-                    const ytSearch = (await import('yt-search')).default
-                    const searchResults = await ytSearch(query)
-                    const video = searchResults.videos[0]
-                    if (!video) return sock.sendMessage(from, { text: 'No results found 😭' })
-
-                    await sock.sendMessage(from, { text: `⬇️ Downloading...\n🎵 ${video.title}\n⏱ ${video.timestamp}` })
-
-                    const ytdl = (await import('ytdl-core')).default
-                    if (video.seconds > 600) { // Limit to 10 minutes
-                         return sock.sendMessage(from, { text: 'Video is too long (over 10 mins). Try a shorter song.' })
-                    }
-                    
-                    const stream = ytdl(video.videoId, { filter: 'audioonly', quality: 'highestaudio' })
-                    const filePath = path.join(__dirname, `${video.videoId}.mp3`)
-
-                    const ffmpeg = (await import('fluent-ffmpeg')).default
-                    const ffmpegPath = (await import('@ffmpeg-installer/ffmpeg')).path
-                    ffmpeg.setFfmpegPath(ffmpegPath)
-
-                    await new Promise((resolve, reject) => {
-                        ffmpeg(stream)
-                            .audioBitrate(128)
-                            .save(filePath)
-                            .on('end', resolve)
-                            .on('error', reject)
-                    })
-
-                    await sock.sendMessage(from, {
-                        audio: { url: filePath },
-                        mimetype: 'audio/mpeg',
-                        fileName: `${video.title}.mp3`
-                    })
-
-                    if (fs.existsSync(filePath)) {
-                        fs.unlinkSync(filePath)
-                    }
-                } catch (e) {
-                    console.error("Music download error:", e);
-                    await sock.sendMessage(from, { text: 'Download failed 😭 (Server error during conversion). Try a different song or check your server logs.' })
-                    
-                    const potentialFilePath = path.join(__dirname, `${query.replace(/\s/g, '_')}.mp3`);
-                    if (fs.existsSync(potentialFilePath)) {
-                         fs.unlinkSync(potentialFilePath);
-                    }
-                }
+                await sock.sendMessage(from, { text: '❌ Music download is temporarily disabled due to server instability. Please use a VPS for this feature.' })
             }
             
             // === MENU ===
             if (cmd === 'menu') {
                 const menu = `
-*🤖 GOD BOT v2 - FULL ARSENAL (Baileys)*
+*🤖 GOD BOT v2 - CORE ARSENAL (Stable)*
 
 !dice → roll dice
 !rps rock/paper/scissors → rock paper scissors
 !img cat wearing hat → AI image (DALL·E or free)
-!play perfect → download song from YouTube
 !sticker → reply image/video
 !ai your question → ChatGPT
 !button → test buttons
 !everyone → tag all (group)
+
+_Note: !play is disabled due to server limitations._
                 `.trim()
                 await sock.sendMessage(from, { text: menu })
             }
